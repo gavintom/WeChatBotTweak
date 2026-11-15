@@ -1,0 +1,19 @@
+# 凭据与令牌：绝不入库
+.git_token
+.git_token.*
+*_token.txt
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.mobileprovision
+secrets.*
+credentials.*
+
+# 本地运行产物
+media/
+__pycache__/
+*.py[cod]
+.DS_Store
+Thumbs.db
