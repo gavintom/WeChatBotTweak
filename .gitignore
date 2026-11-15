@@ -11,6 +11,9 @@
 secrets.*
 credentials.*
 
+# 工作区内部元数据（本地笔记，不公开）
+.workbuddy/
+
 # 本地运行产物
 media/
 __pycache__/
