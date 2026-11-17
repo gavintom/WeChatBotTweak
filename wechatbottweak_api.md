@@ -1,6 +1,6 @@
 # WeChatBotTweak HTTP API
 
-适用版本：v1.2.7（2026-11-15）
+适用版本：v1.2.9（2026-11-17）
 
 本文档描述 WeChatBotTweak 对外提供的 HTTP 接口。所有示例中的地址、令牌与 ID 均为占位符，请替换为实际值。
 
@@ -12,19 +12,19 @@
 BASE="http://<DEVICE_IP>:18888"     # 替换为设备实际 IP
 TOKEN="<YOUR_TOKEN>"                # 在设置页或配置中查看
 
-# 健康检查
-curl -s -H "X-Token: $TOKEN" "$BASE/api/health" | jq .
+# 健康检查（只读，GET）
+curl -s -H "X-Token: $TOKEN" "$BASE/api/health"
 
 # 列出会话
-curl -s -H "X-Token: $TOKEN" "$BASE/api/chats" | jq .
+curl -s -H "X-Token: $TOKEN" "$BASE/api/chats"
 
-# 发送文本
+# 发送文本（写操作，POST）
 curl -s -X POST "$BASE/api/send/text" \
-  -H "Content-Type: application/json" -H "X-Token: $TOKEN" \
-  -d '{"chat":"<CHAT_ID>","text":"你好"}' | jq .
+  -H "X-Token: $TOKEN" -H "Content-Type: application/json" \
+  -d '{"chat":"<CHAT_ID>","text":"你好"}'
 
 # 读取最新朋友圈
-curl -s -H "X-Token: $TOKEN" "$BASE/api/moments/timeline/gethead" | jq .
+curl -s -H "X-Token: $TOKEN" "$BASE/api/moments/timeline/gethead"
 ```
 
 ---
@@ -57,6 +57,19 @@ curl -s -H "X-Token: $TOKEN" "$BASE/api/moments/timeline/gethead" | jq .
 | `deduped:true` | 同一 `requestId` 已完成，直接回显上次结果，不执行任何动作 |
 
 > 不带 `requestId` 的重复请求不会被去重。「点赞 → 取消赞 → 点赞」和连续发送两条相同内容都是合法操作。需要安全重试时，请保存首次响应中的 `requestId` 并在重试时原样带回。
+
+### 2.2 curl 示例约定
+
+本文所有接口示例写法一致，复制后只需替换 `<...>` 占位符即可运行：
+
+| 项 | 约定 |
+| --- | --- |
+| 变量 | 只引用第 1 章定义的 `$BASE`（基址）与 `$TOKEN`（令牌），示例中不出现写死的 IP 或令牌 |
+| 请求头 | 令牌恒为 `-H "X-Token: $TOKEN"`，并且**排在第一个**；`POST` 再跟 `-H "Content-Type: application/json"` |
+| 位置 | `GET` 写成 `curl -s -H "X-Token: $TOKEN" "$BASE/路径"`；`POST` 写成 `curl -s -X POST "$BASE/路径"` 后跟请求头。URL 一律用双引号包住，查询参数直接拼在 URL 上 |
+| 请求体 | body 用单引号包住 JSON，`-d` 放在命令**最后**；体积较大时改用 `-d @payload.json` 从文件读取 |
+| 下载 | 返回二进制的接口在命令末尾加 `-o <文件名>` |
+| 输出 | 统一 `curl -s`（不打印进度，响应体本身即 JSON）；需要格式化输出时可自行在末尾追加 `| jq .` |
 
 ---
 
@@ -96,7 +109,7 @@ curl -s -H "X-Token: $TOKEN" "$BASE/api/moments/timeline/gethead" | jq .
 | `autoDownloadMedia` / `keepAlive` | 相关功能开关状态 |
 
 ```bash
-curl -s -H "X-Token: $TOKEN" "$BASE/api/health" | jq .
+curl -s -H "X-Token: $TOKEN" "$BASE/api/health"
 ```
 
 ### 4.2 `GET|POST /api/webhook` — 消息推送地址
@@ -114,8 +127,13 @@ curl -s -H "X-Token: $TOKEN" "$BASE/api/health" | jq .
 | `url` | string | 接收新消息推送的地址。省略、空串或纯空白表示清除，清除后不再推送 |
 
 ```bash
-curl -s -X POST "$BASE/api/webhook" -H "X-Token: $TOKEN" \
-  -H "Content-Type: application/json" -d '{"url":"https://example.com/messages"}'
+# 查询当前地址
+curl -s -H "X-Token: $TOKEN" "$BASE/api/webhook"
+
+# 设置地址
+curl -s -X POST "$BASE/api/webhook" \
+  -H "X-Token: $TOKEN" -H "Content-Type: application/json" \
+  -d '{"url":"https://example.com/messages"}'
 ```
 
 ### 4.3 `GET|POST /api/alert` — 告警推送地址
@@ -132,8 +150,12 @@ curl -s -X POST "$BASE/api/webhook" -H "X-Token: $TOKEN" \
 | `test` | bool | `1` 时向新地址发送一条测试告警，不阻塞响应 |
 
 ```bash
-curl -s -X POST "$BASE/api/alert" -H "X-Token: $TOKEN" \
-  -H "Content-Type: application/json" \
+# 查询当前地址
+curl -s -H "X-Token: $TOKEN" "$BASE/api/alert"
+
+# 设置地址并发一条测试告警
+curl -s -X POST "$BASE/api/alert" \
+  -H "X-Token: $TOKEN" -H "Content-Type: application/json" \
   -d '{"url":"https://example.com/alerts","test":1}'
 ```
 
@@ -157,6 +179,10 @@ curl -s -X POST "$BASE/api/alert" -H "X-Token: $TOKEN" \
 
 > 授权失效时 HTTP 服务会停止，需在设置页重新激活。未激活时可在试用期内使用。
 
+```bash
+curl -s -H "X-Token: $TOKEN" "$BASE/api/license"
+```
+
 ### 4.5 `POST /api/activate` — 设置或清除激活码
 
 | 字段 | 类型 | 必填 | 说明 |
@@ -167,8 +193,15 @@ curl -s -X POST "$BASE/api/alert" -H "X-Token: $TOKEN" \
 激活码与设备绑定，仅适用于签发时指定的设备。响应为 4.4 的授权状态结构；校验失败返回 `400` 并带错误说明。
 
 ```bash
-curl -s -X POST "$BASE/api/activate" -H "X-Token: $TOKEN" \
-  -H "Content-Type: application/json" -d '{"code":"<CODE>","dryRun":1}'
+# 只校验激活码，不写入
+curl -s -X POST "$BASE/api/activate" \
+  -H "X-Token: $TOKEN" -H "Content-Type: application/json" \
+  -d '{"code":"<CODE>","dryRun":1}'
+
+# 正式写入绑定
+curl -s -X POST "$BASE/api/activate" \
+  -H "X-Token: $TOKEN" -H "Content-Type: application/json" \
+  -d '{"code":"<CODE>"}'
 ```
 
 ---
@@ -243,7 +276,7 @@ curl -s -X POST "$BASE/api/activate" -H "X-Token: $TOKEN" \
 
 ```bash
 curl -s -H "X-Token: $TOKEN" "$BASE/api/contacts/refresh"
-curl -s -X POST -H "X-Token: $TOKEN" "$BASE/api/contacts/refresh?force=1"
+curl -s -X POST "$BASE/api/contacts/refresh?force=1" -H "X-Token: $TOKEN"
 ```
 
 ### 6.2 `GET /api/contacts/groups` — 所有群聊
@@ -253,6 +286,10 @@ curl -s -X POST -H "X-Token: $TOKEN" "$BASE/api/contacts/refresh?force=1"
 ```json
 {"ok":true,"count":1,"groups":[{"wxid":"<CHAT_ID>","name":"示例群",
  "uiClass":"group","isGroup":true,"memberCount":12}]}
+```
+
+```bash
+curl -s -H "X-Token: $TOKEN" "$BASE/api/contacts/groups"
 ```
 
 ### 6.3 `GET /api/contacts/groupmember` — 群成员 / 反查成员
@@ -291,6 +328,11 @@ curl -s -H "X-Token: $TOKEN" "$BASE/api/contacts/friends?name=<NAME>"
 | `name` | 先精确后模糊（不区分大小写） |
 
 在全量通讯录中查询，可查到群成员、公众号等。两个参数至少传一个，都不传 → `400 need wxid or name`。
+
+```bash
+curl -s -H "X-Token: $TOKEN" "$BASE/api/contacts/find?wxid=<WXID>"
+curl -s -H "X-Token: $TOKEN" "$BASE/api/contacts/find?name=<NAME>"
+```
 
 ### 6.6 统一反查结构与联系人字段
 
@@ -360,6 +402,10 @@ curl -s -H "X-Token: $TOKEN" "$BASE/api/contacts/groupmember?chat=<CHAT_ID>"
 
 未知 query 参数会被忽略。需要全量联系人与分类请使用第 6 章接口。
 
+```bash
+curl -s -H "X-Token: $TOKEN" "$BASE/api/chats"
+```
+
 ### 7.2 `GET /api/messages` — 读取消息
 
 | 参数 | 类型 | 必填 | 说明 |
@@ -393,9 +439,11 @@ curl -s -H "X-Token: $TOKEN" "$BASE/api/messages?chat=<CHAT_ID>&limit=20"
 - 请不要并发拉取多个大体积视频。
 
 ```bash
-curl -s -o media.bin -H "X-Token: $TOKEN" \
-  "$BASE/api/media?chat=<CHAT_ID>&localID=<LOCAL_ID>"
+# 取二进制
+curl -s -H "X-Token: $TOKEN" \
+  "$BASE/api/media?chat=<CHAT_ID>&localID=<LOCAL_ID>" -o media.bin
 
+# 只看元信息（JSON）
 curl -s -H "X-Token: $TOKEN" \
   "$BASE/api/media?chat=<CHAT_ID>&localID=<LOCAL_ID>&info=1"
 ```
@@ -415,9 +463,12 @@ curl -s -H "X-Token: $TOKEN" \
 二进制响应的 `Content-Type` 按扩展名映射，未知回落 `application/octet-stream`。文件尚未下载时返回 `404 file not downloaded locally`，可稍后重试或在微信中打开该文件后再试。
 
 ```bash
+# 只看元信息（JSON）
 curl -s -H "X-Token: $TOKEN" "$BASE/api/file?chat=<CHAT_ID>&localID=<LOCAL_ID>&info=1"
-curl -s -o out.bin -H "X-Token: $TOKEN" \
-  "$BASE/api/file?chat=<CHAT_ID>&localID=<LOCAL_ID>"
+
+# 取原始字节
+curl -s -H "X-Token: $TOKEN" \
+  "$BASE/api/file?chat=<CHAT_ID>&localID=<LOCAL_ID>" -o out.bin
 ```
 
 ---
@@ -559,8 +610,8 @@ curl -s -H "X-Token: $TOKEN" "$BASE/api/moments/user/getnext?user=<USER_ID>&limi
 
 ```bash
 curl -s -H "X-Token: $TOKEN" "$BASE/api/moments/media?tid=<TID>&index=0" -o media.bin
-curl -s -H "X-Token: $TOKEN" "$BASE/api/moments/media?tid=<TID>&index=0&info=1" | jq .
-curl -s -H "X-Token: $TOKEN" "$BASE/api/moments/media?tid=<TID>&index=0&info=1&original=0" | jq '.localTier'
+curl -s -H "X-Token: $TOKEN" "$BASE/api/moments/media?tid=<TID>&index=0&info=1"
+curl -s -H "X-Token: $TOKEN" "$BASE/api/moments/media?tid=<TID>&index=0&info=1&original=0"
 ```
 
 ### 8.7 `POST /api/moments/like` — 点赞
@@ -575,8 +626,9 @@ curl -s -H "X-Token: $TOKEN" "$BASE/api/moments/media?tid=<TID>&index=0&info=1&o
 返回 `ok`、`action`、`tid`、`changed`；已赞时 `changed=false` + `reason:"already liked"`（幂等，不会重复点赞）。公共响应字段 `requestId` / `state` 见 2.1。
 
 ```bash
-curl -s -X POST "$BASE/api/moments/like" -H "X-Token: $TOKEN" \
-  -H "Content-Type: application/json" -d '{"tid":"<TID>","dryRun":1}'
+curl -s -X POST "$BASE/api/moments/like" \
+  -H "X-Token: $TOKEN" -H "Content-Type: application/json" \
+  -d '{"tid":"<TID>","dryRun":1}'
 ```
 
 ### 8.8 `POST /api/moments/unlike` — 取消点赞
@@ -584,8 +636,9 @@ curl -s -X POST "$BASE/api/moments/like" -H "X-Token: $TOKEN" \
 **真实社交动作**。参数与 8.7 相同。返回 `ok`、`action`、`tid`、`changed`；未赞时 `changed=false` + `reason:"not liked yet"`。
 
 ```bash
-curl -s -X POST "$BASE/api/moments/unlike" -H "X-Token: $TOKEN" \
-  -H "Content-Type: application/json" -d '{"tid":"<TID>","dryRun":1}'
+curl -s -X POST "$BASE/api/moments/unlike" \
+  -H "X-Token: $TOKEN" -H "Content-Type: application/json" \
+  -d '{"tid":"<TID>","dryRun":1}'
 ```
 
 ### 8.9 `POST /api/moments/comment` — 发表评论
@@ -603,8 +656,8 @@ curl -s -X POST "$BASE/api/moments/unlike" -H "X-Token: $TOKEN" \
 错误：缺 / 空 `content` 或超长 → `400`；`tid` 未装载 → `404`；重复 `requestId` → `409`。
 
 ```bash
-curl -s -X POST "$BASE/api/moments/comment" -H "X-Token: $TOKEN" \
-  -H "Content-Type: application/json" \
+curl -s -X POST "$BASE/api/moments/comment" \
+  -H "X-Token: $TOKEN" -H "Content-Type: application/json" \
   -d '{"tid":"<TID>","content":"谢谢","dryRun":1}'
 ```
 
@@ -627,12 +680,14 @@ curl -s -X POST "$BASE/api/moments/comment" -H "X-Token: $TOKEN" \
 
 ```bash
 # 1) 查可删评论（不执行）
-curl -s -X POST "$BASE/api/moments/rm_comment" -H "X-Token: $TOKEN" \
-  -H "Content-Type: application/json" -d '{"tid":"<TID>","dryRun":1}'
+curl -s -X POST "$BASE/api/moments/rm_comment" \
+  -H "X-Token: $TOKEN" -H "Content-Type: application/json" \
+  -d '{"tid":"<TID>","dryRun":1}'
 
 # 2) 精确删除
-curl -s -X POST "$BASE/api/moments/rm_comment" -H "X-Token: $TOKEN" \
-  -H "Content-Type: application/json" -d '{"tid":"<TID>","commentId":"<COMMENT_ID>"}'
+curl -s -X POST "$BASE/api/moments/rm_comment" \
+  -H "X-Token: $TOKEN" -H "Content-Type: application/json" \
+  -d '{"tid":"<TID>","commentId":"<COMMENT_ID>"}'
 ```
 
 ### 8.11 `moments[]` 字段字典
@@ -705,17 +760,18 @@ curl -s -X POST "$BASE/api/moments/rm_comment" -H "X-Token: $TOKEN" \
 
 ```bash
 # 普通文本
-curl -s -X POST "$BASE/api/send/text" -H "X-Token: $TOKEN" \
-  -H "Content-Type: application/json" -d '{"chat":"<CHAT_ID>","text":"你好"}'
+curl -s -X POST "$BASE/api/send/text" \
+  -H "X-Token: $TOKEN" -H "Content-Type: application/json" \
+  -d '{"chat":"<CHAT_ID>","text":"你好"}'
 
 # @ 某人
-curl -s -X POST "$BASE/api/send/text" -H "X-Token: $TOKEN" \
-  -H "Content-Type: application/json" \
+curl -s -X POST "$BASE/api/send/text" \
+  -H "X-Token: $TOKEN" -H "Content-Type: application/json" \
   -d '{"chat":"<CHAT_ID>","text":"请看一下","at":["<WXID>"]}'
 
 # @所有人：先预演，确认后再去掉 dryRun
-curl -s -X POST "$BASE/api/send/text" -H "X-Token: $TOKEN" \
-  -H "Content-Type: application/json" \
+curl -s -X POST "$BASE/api/send/text" \
+  -H "X-Token: $TOKEN" -H "Content-Type: application/json" \
   -d '{"chat":"<CHAT_ID>","text":"今晚 8 点开会","atAll":1,"dryRun":1}'
 ```
 
@@ -732,8 +788,8 @@ curl -s -X POST "$BASE/api/send/text" -H "X-Token: $TOKEN" \
 响应：`ok`、`quoteLocalID`、`finalText`、`atList`。此接口不支持 `atAll`。错误：缺 `quoteLocalID` → `400`；被引用消息不存在 → `400 quote message not found`。
 
 ```bash
-curl -s -X POST "$BASE/api/send/quote" -H "X-Token: $TOKEN" \
-  -H "Content-Type: application/json" \
+curl -s -X POST "$BASE/api/send/quote" \
+  -H "X-Token: $TOKEN" -H "Content-Type: application/json" \
   -d '{"chat":"<CHAT_ID>","text":"收到，我看下","quoteLocalID":<LOCAL_ID>,"at":["<WXID>"]}'
 ```
 
@@ -750,6 +806,22 @@ curl -s -X POST "$BASE/api/send/quote" -H "X-Token: $TOKEN" \
 - 缺两者 → `400`；base64 无法解码或内容为空 → `400`；不是合法图片 → `500 image decode failed`。
 - 响应：`ok`、`imageBytes`、`requestId` / `state`。
 
+```bash
+# 方式一：设备上的文件路径（推荐，不需要编码，最省请求体）
+curl -s -X POST "$BASE/api/send/image" \
+  -H "X-Token: $TOKEN" -H "Content-Type: application/json" \
+  -d '{"chat":"<CHAT_ID>","path":"/var/mobile/Media/DCIM/photo.jpg"}'
+
+# 方式二：base64 内联（小图）或放进 JSON 文件后用 -d @file 发送（大图）
+curl -s -X POST "$BASE/api/send/image" \
+  -H "X-Token: $TOKEN" -H "Content-Type: application/json" \
+  -d '{"chat":"<CHAT_ID>","image":"<BASE64>"}'
+
+curl -s -X POST "$BASE/api/send/image" \
+  -H "X-Token: $TOKEN" -H "Content-Type: application/json" \
+  -d @image.json
+```
+
 ### 9.4 `POST /api/send/voice` — 语音
 
 | 参数 | 类型 | 必填 | 默认 | 说明 |
@@ -762,6 +834,18 @@ curl -s -X POST "$BASE/api/send/quote" -H "X-Token: $TOKEN" \
 
 音频上限 **5 MB**。声明格式与真实编码不一致时消息能发出但对方可能无法播放。响应：`ok`、`format`、`voiceTimeMs`、`voiceBytes`。
 
+```bash
+# 方式一：设备上的音频文件（path），按真实时长声明
+curl -s -X POST "$BASE/api/send/voice" \
+  -H "X-Token: $TOKEN" -H "Content-Type: application/json" \
+  -d '{"chat":"<CHAT_ID>","path":"/var/mobile/Media/audio.silk","format":4,"duration":5}'
+
+# 方式二：base64 内联
+curl -s -X POST "$BASE/api/send/voice" \
+  -H "X-Token: $TOKEN" -H "Content-Type: application/json" \
+  -d '{"chat":"<CHAT_ID>","voice":"<BASE64>","format":4,"duration":5}'
+```
+
 ### 9.5 `POST /api/send/video` — 视频
 
 | 参数 | 类型 | 必填 | 说明 |
@@ -771,6 +855,18 @@ curl -s -X POST "$BASE/api/send/quote" -H "X-Token: $TOKEN" \
 | `path` | string | 二选一 | 设备上的 mp4 文件路径 |
 
 视频上限 **20 MB**，单个请求体上限 **32 MB**，超限 → `413`。响应：`ok`、`videoBytes`。
+
+```bash
+# 方式一：设备上的 mp4 文件（推荐）
+curl -s -X POST "$BASE/api/send/video" \
+  -H "X-Token: $TOKEN" -H "Content-Type: application/json" \
+  -d '{"chat":"<CHAT_ID>","path":"/var/mobile/Media/DCIM/VID_0001.mp4"}'
+
+# 方式二：base64 内联（受 32 MB 请求体上限约束，大视频请改用 path）
+curl -s -X POST "$BASE/api/send/video" \
+  -H "X-Token: $TOKEN" -H "Content-Type: application/json" \
+  -d '{"chat":"<CHAT_ID>","video":"<BASE64>"}'
+```
 
 ### 9.6 `POST /api/send/file` — 发送文件
 
@@ -784,8 +880,14 @@ curl -s -X POST "$BASE/api/send/quote" -H "X-Token: $TOKEN" \
 文件上限 **20 MB**，超限 → `413`。响应：`ok`、`fileName`、`fileBytes`、`ext`。
 
 ```bash
-curl -s -X POST "$BASE/api/send/file" -H "X-Token: $TOKEN" \
-  -H "Content-Type: application/json" \
+# 方式一：设备上的文件（推荐，文件名自动取 path 的最后一段）
+curl -s -X POST "$BASE/api/send/file" \
+  -H "X-Token: $TOKEN" -H "Content-Type: application/json" \
+  -d '{"chat":"<CHAT_ID>","path":"/var/mobile/Media/report.pdf"}'
+
+# 方式二：base64 内联
+curl -s -X POST "$BASE/api/send/file" \
+  -H "X-Token: $TOKEN" -H "Content-Type: application/json" \
   -d '{"chat":"<CHAT_ID>","file":"<BASE64>","name":"report.pdf"}'
 ```
 
@@ -810,6 +912,10 @@ curl -s -X POST "$BASE/api/send/file" -H "X-Token: $TOKEN" \
 | `richText` | 富文本内容；纯文本公告该项为空 |
 
 > 服务器同步有延迟，刚发布完立刻读可能仍是旧值，隔几秒复查即可。
+
+```bash
+curl -s -H "X-Token: $TOKEN" "$BASE/api/group/announcement?chat=<CHAT_ID>"
+```
 
 ### 9.8 `POST /api/group/announcement` — 设置群公告
 
@@ -836,13 +942,13 @@ curl -s -X POST "$BASE/api/send/file" -H "X-Token: $TOKEN" \
 
 ```bash
 # 1) 预演（默认 dryRun=1）
-curl -s -X POST "$BASE/api/group/announcement" -H "X-Token: $TOKEN" \
-  -H "Content-Type: application/json" \
+curl -s -X POST "$BASE/api/group/announcement" \
+  -H "X-Token: $TOKEN" -H "Content-Type: application/json" \
   -d '{"chat":"<CHAT_ID>","text":"今晚 8 点开会"}'
 
 # 2) 真正发布（会通知群成员）
-curl -s -X POST "$BASE/api/group/announcement" -H "X-Token: $TOKEN" \
-  -H "Content-Type: application/json" \
+curl -s -X POST "$BASE/api/group/announcement" \
+  -H "X-Token: $TOKEN" -H "Content-Type: application/json" \
   -d '{"chat":"<CHAT_ID>","text":"今晚 8 点开会","dryRun":0}'
 ```
 
@@ -889,24 +995,25 @@ curl -s -H "X-Token: $TOKEN" "$BASE/api/contacts/groupmember?chat=<CHAT_ID>"
 curl -s -H "X-Token: $TOKEN" "$BASE/api/messages?chat=<CHAT_ID>&limit=20"
 
 # 4. 发送（文本 / @ / 引用 / 引用 + @）
-curl -s -X POST "$BASE/api/send/text" -H "X-Token: $TOKEN" \
-  -H "Content-Type: application/json" \
+curl -s -X POST "$BASE/api/send/text" \
+  -H "X-Token: $TOKEN" -H "Content-Type: application/json" \
   -d '{"chat":"<CHAT_ID>","text":"...","at":["<WXID>"]}'
-curl -s -X POST "$BASE/api/send/quote" -H "X-Token: $TOKEN" \
-  -H "Content-Type: application/json" \
+curl -s -X POST "$BASE/api/send/quote" \
+  -H "X-Token: $TOKEN" -H "Content-Type: application/json" \
   -d '{"chat":"<CHAT_ID>","text":"回复内容","quoteLocalID":<LOCAL_ID>}'
 
 # 5. 下载收到的媒体 / 文件
-curl -s -o out.bin -H "X-Token: $TOKEN" \
-  "$BASE/api/media?chat=<CHAT_ID>&localID=<LOCAL_ID>"
-curl -s -o out.bin -H "X-Token: $TOKEN" \
-  "$BASE/api/file?chat=<CHAT_ID>&localID=<LOCAL_ID>"
+curl -s -H "X-Token: $TOKEN" \
+  "$BASE/api/media?chat=<CHAT_ID>&localID=<LOCAL_ID>" -o out.bin
+curl -s -H "X-Token: $TOKEN" \
+  "$BASE/api/file?chat=<CHAT_ID>&localID=<LOCAL_ID>" -o out.bin
 
 # 6. 朋友圈：取最新 → 逐页追加 → 下载图片 → 点赞
 curl -s -H "X-Token: $TOKEN" "$BASE/api/moments/timeline/gethead?media=0"
 curl -s -H "X-Token: $TOKEN" "$BASE/api/moments/timeline/getnext?media=0"
-curl -s -o photo.jpg -H "X-Token: $TOKEN" \
-  "$BASE/api/moments/media?tid=<TID>&index=0"
-curl -s -X POST "$BASE/api/moments/like" -H "X-Token: $TOKEN" \
-  -H "Content-Type: application/json" -d '{"tid":"<TID>","dryRun":1}'
+curl -s -H "X-Token: $TOKEN" \
+  "$BASE/api/moments/media?tid=<TID>&index=0" -o photo.jpg
+curl -s -X POST "$BASE/api/moments/like" \
+  -H "X-Token: $TOKEN" -H "Content-Type: application/json" \
+  -d '{"tid":"<TID>","dryRun":1}'
 ```

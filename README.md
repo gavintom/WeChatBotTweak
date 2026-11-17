@@ -1,7 +1,7 @@
 # WeChatBotTweak · 使用说明书
 
 > **让微信能力，接进你的业务流程。**
-> 面向客户与公众的公开说明 · 版本 **v1.2.7**
+> 面向客户与公众的公开说明 · 版本 **v1.2.9**
 
 **项目官网**：[https://wxbottweak.kdns.fr/wechatbottweak](https://wxbottweak.kdns.fr/wechatbottweak) —— 产品价值、功能全景、接入说明与插件下载，都可在官网查看。
 
@@ -95,13 +95,17 @@
 | --- | --- |
 | `README.md` | 本说明书 |
 | `wechatbottweak_api.md` | 对外接口文档（30 个接口 / 34 条路由），含参数、返回字段与调用示例 |
-| `packages/cwwechatbot_1.2.7_rootless.deb` | 适用于 rootless 越狱环境的安装包 |
-| `packages/cwwechatbot_1.2.7_rootful.deb` | 适用于 rootful 越狱环境的安装包 |
+| `packages/cwwechatbot_1.2.9_rootless.deb` | 适用于 rootless 越狱环境的安装包 |
+| `packages/cwwechatbot_1.2.9_rootful.deb` | 适用于 rootful 越狱环境的安装包 |
 | `client/wxbot_client.py` | 示例客户端：查询、发送、媒体下载 |
 | `client/webhook_receiver.py` | 实时推送接收端示例，含媒体自动回拉保存 |
 | `assets/wechatbottweak-website.jpg` | 官网首页截图 |
 
 两个安装包功能完全一致，按设备环境选择其一即可。
+
+> **v1.2.9（2026-11-17）** —— 稳定性版本。修复长时间运行后偶发的进程闪退；
+> 后台保活改为可观测的周期续期，切到后台后服务持续在线更可靠。
+> **接口与配置完全不变**，从 1.2.7 升级无需重新配置，原有授权继续有效。
 
 ---
 
@@ -218,4 +222,4 @@ curl -s -X POST "$BASE/api/send/text" -H "X-Token: $TOKEN" \
 
 ---
 
-> WeChatBotTweak v1.2.7 · 仅供技术学习与私有化自动化研究，请在受信任网络内使用。
+> WeChatBotTweak v1.2.9 · 仅供技术学习与私有化自动化研究，请在受信任网络内使用。
