@@ -1,6 +1,6 @@
 # WeChatBotTweak HTTP API
 
-适用版本：v1.2.9（2026-11-17）
+适用版本：v1.2.10（2026-11-19）
 
 本文档描述 WeChatBotTweak 对外提供的 HTTP 接口。所有示例中的地址、令牌与 ID 均为占位符，请替换为实际值。
 
@@ -75,7 +75,7 @@ curl -s -H "X-Token: $TOKEN" "$BASE/api/moments/timeline/gethead"
 
 ## 3. 接口总览
 
-共 **30 个接口路径 / 34 个 GET·POST 路由**。
+共 **35 个接口路径 / 39 个 GET·POST 路由**。
 
 | 分类 | 接口 |
 | --- | --- |
@@ -88,6 +88,7 @@ curl -s -H "X-Token: $TOKEN" "$BASE/api/moments/timeline/gethead"
 | 好友朋友圈主页（2） | `GET /api/moments/user/gethead`、`/getnext` |
 | 朋友圈媒体（1） | `GET /api/moments/media` |
 | 朋友圈写操作（4） | `POST /api/moments/like`、`/unlike`、`/comment`、`/rm_comment` |
+| 社交管理（5 / 5） | `POST /api/group/nickname`（只改自己的）、`POST /api/contact/remark`、`GET /api/friend/requests`、`POST /api/friend/verify`、`GET /api/friend/verify/cooldown` |
 
 ---
 
@@ -238,6 +239,13 @@ curl -s -X POST "$BASE/api/activate" \
 | `fileState` / `fileApi` / `fileInfoApi` | 文件状态与下载地址 |
 | `title` / `desc` / `url` | 链接与卡片标题、描述、跳转地址 |
 | `coverUrl` / `thumbUrl` | 封面与缩略图地址 |
+| `svrid` | 服务器消息 ID，**字符串**（数值超出 JavaScript 安全整数范围，前端请按字符串处理）。引用消息用它定位被引用的原消息；尚未同步到服务器的本地消息可能没有该字段 |
+| `quote` | 引用消息的结构化信息，见 7.2.1（仅引用消息有） |
+| `quoteResolved` | 被引用原消息的定位结果与现成下载地址，见 7.2.1（仅引用消息有） |
+
+> 推送的引用消息与 `/api/messages` 返回的字段一致：同样带 `svrid`、`quote`、
+> `quoteResolved`，收到推送即可直接按 `quoteResolved.mediaApi`（或 `fileApi`）下载，
+> 不必再回查接口。`quoteResolved` 是推送时现算的，不写进本地记录。
 
 > 只有服务运行期间捕获到的消息会推送，不是微信全量历史。开启自动下载媒体后，新收到的图片、视频与文件会异步下载，随后可用对应接口回读。
 
@@ -300,9 +308,13 @@ curl -s -H "X-Token: $TOKEN" "$BASE/api/contacts/groups"
 | `wxid` | 否 | 传了进入精确反查模式 |
 | `name` | 否 | 传了进入反查模式（先精确后模糊） |
 
-列表模式返回 `ok`、`chat`、`groupName`、`owner`、`self`、`isOwner`、`count`、`memberCount`、`members[]`。`members[]` 每项含 `wxid`、`name`、`nickName`、`remark`、`groupNick`、`displayName`、`isSelf`、`isOwner`、`uiClass`、`avatar`（有值才出现）。`displayName` 优先取群名片，否则取全局显示名。
+列表模式返回 `ok`、`chat`、`groupName`、`owner`、`self`、`isOwner`、`adminCount`、`role`、`count`、`memberCount`、`members[]`。`members[]` 每项含 `wxid`、`name`、`nickName`、`remark`、`groupNick`、`displayName`、`isSelf`、`isOwner`、`isAdmin`、`uiClass`、`avatar`（有值才出现）。`displayName` 优先取群名片，否则取全局显示名。
 
-反查模式返回 6.6 的统一结构，并额外带 `chat` / `groupName` / `owner` / `isOwner` / `memberCount`；此时 `count` 是匹配数，成员总数在 `memberCount`。
+- `role`：当前账号在该群的角色 `{self, owner, isOwner, isAdmin, canManage}`（v1.2.10 起）。`canManage=1` 表示群主 / 管理员（该字段只描述角色，不再有「管理员才能改群成员备注」这类入口）。
+- `isAdmin`：该成员是否群管理员（v1.2.10 起，读 `m_nsChatRoomAdminList`）。`isOwner=1` 时一般不再重复标 `isAdmin`，展示以群主优先。
+- `adminCount`：管理员人数（不含群主）。
+
+反查模式返回 6.6 的统一结构，并额外带 `chat` / `groupName` / `owner` / `isOwner` / `role` / `adminCount` / `memberCount`；此时 `count` 是匹配数，成员总数在 `memberCount`。
 
 错误：缺 `chat` → `400`；非群会话 → `404 not a group chat`；找不到该群 → `404 group not found`。
 
@@ -311,14 +323,37 @@ curl -s -H "X-Token: $TOKEN" "$BASE/api/contacts/groupmember?chat=<CHAT_ID>"
 curl -s -H "X-Token: $TOKEN" "$BASE/api/contacts/groupmember?chat=<CHAT_ID>&name=<NAME>"
 ```
 
-### 6.4 `GET /api/contacts/friends` — 好友明细 / 反查好友
+### 6.4 `GET /api/contacts/friends` — 联系人明细 / 反查（可按分类切换）
 
-无参数时返回全部好友（含自己）：`{ok, count, friends[]}`。传 `wxid` 或 `name` 时只在好友范围内反查，返回 6.6 的统一结构。
+不传参数时返回全部好友（含自己）：`{ok, uiClass, count, friends[], items[]}`。
+`friends` 与 `items` 是同一个数组的两个名字（后者是通用名），内容完全一致。
+
+`uiClass` 参数可把同一路径切到别的分类，缺省仍是 `friend`：
+
+| `uiClass` | 说明 |
+| --- | --- |
+| 不传 / `friend` | 微信好友（老行为） |
+| `group` | 群聊（等同 6.2） |
+| `officialAccount` | 已关注的订阅号 / 认证公众号 |
+| `enterpriseRelated` | 企业消息号 |
+| `builtinService` | 微信内置服务号 |
+| `enterpriseContact` | 企业微信外部联系人 |
+| `myEnterpriseMember` | 企业成员 |
+| `plugin` / `migrated` / `stranger` | 插件号 / 已迁移注销 / 陌生人缓存 |
+| `all` | 全量通讯录 |
+
+分类名写错会返回 **400** 并附带 `supportedClasses[]`，不会静默返回 `count:0`；
+分类名正确但确实没人（例如本机没加过企业微信外部联系人时的 `enterpriseContact`）
+才返回 `{"ok":true,"count":0}`。
 
 ```bash
 curl -s -H "X-Token: $TOKEN" "$BASE/api/contacts/friends"
-curl -s -H "X-Token: $TOKEN" "$BASE/api/contacts/friends?name=<NAME>"
+curl -s -H "X-Token: $TOKEN" "$BASE/api/contacts/friends?uiClass=officialAccount"
+curl -s -H "X-Token: $TOKEN" "$BASE/api/contacts/friends?uiClass=all"
+curl -s -H "X-Token: $TOKEN" "$BASE/api/contacts/friends?uiClass=officialAccount&name=<NAME>"
 ```
+
+传 `wxid` 或 `name` 时在**选定分类**内反查，返回 6.6 的统一结构（不带 `friends[]`）。
 
 ### 6.5 `GET /api/contacts/find` — 全量反查用户
 
@@ -420,6 +455,63 @@ curl -s -H "X-Token: $TOKEN" "$BASE/api/chats"
 ```bash
 curl -s -H "X-Token: $TOKEN" "$BASE/api/messages?chat=<CHAT_ID>&limit=20"
 ```
+
+#### 7.2.1 引用消息：下载被引用的图片 / 视频 / 语音 / 文件
+
+引用回复消息（`type=49`、`appType=quote`）**本身没有可下载的媒体**：`text` 是回复正文，
+`content` 是整段 XML，被引用那条消息的内容以转义形式嵌在 `<refermsg>` 里，
+其中的 CDN 字段是加密的引用标识而不是可访问的链接，客户端无法据此直接取文件。
+
+因此服务在每条引用消息上额外给出两个字段：
+
+- `quote`：被引用消息的结构化信息（`type` / `typeName` / `svrid` / `fromUsr` /
+  `chatUsr` / `displayName` / `createTime` / `content`，被引用的是文件时还有
+  `appSubType` / `fileName` / `fileExt` / `fileSize`）；
+- `quoteResolved`：**被引用原消息的定位结果＋可直接下载的地址**，无需自己换算。
+
+```json
+{
+  "type": 49, "appType": "quote", "localID": 22,
+  "text": "暂不支持图片/视频消息，请发送文字或语音～",
+  "quote": {"type": 3, "typeName": "image", "svrid": "1674093303246512992",
+            "fromUsr": "<WXID>", "displayName": "<NAME>", "createTime": 1795051162},
+  "quoteResolved": {"found": true, "resolvedBy": "svrid", "quoteType": 3,
+                    "localID": 21,
+                    "mediaApi": "/api/media?chat=<CHAT_ID>&localID=21",
+                    "mediaApiHD": "/api/media?chat=<CHAT_ID>&localID=21&hd=1"}
+}
+```
+
+| `quoteResolved` 字段 | 说明 |
+| --- | --- |
+| `found` | 是否定位到被引用的原消息 |
+| `resolvedBy` | `svrid`（精确命中）/ `cache`（按时间与发送者匹配，可能有歧义）/ `skipped`（单次响应解析条数达上限）/ `none`（定位不到） |
+| `quoteType` | 原消息类型 |
+| `localID` | 原消息在本会话内的本地 ID |
+| `mediaApi` / `fileApi` | 按原消息类型给出，可直接 GET |
+| `mediaApiHD` | 原消息是图片时的原图地址 |
+| `hint` | 定位不到或没有可下载内容时的原因 |
+
+| 被引用内容 | `quote.type` | 用什么下载 |
+| --- | --- | --- |
+| 图片 | `3` | `mediaApi`（要原图用 `mediaApiHD`） |
+| 语音 | `34` | `mediaApi` |
+| 视频 | `43` | `mediaApi`（本机没有时会自动下载，首次超时请重试一次） |
+| 文件 | `49` 且 `quote.appSubType` 为 `6` 或 `74` | `fileApi` |
+| 文本 / 表情 / 链接 / 音乐 | 其它 | 没有可下载内容 |
+
+```bash
+# 一条命令：从最近消息里找引用消息的下载地址，再拉二进制
+API=$(curl -s -H "X-Token: $TOKEN" "$BASE/api/messages?chat=<CHAT_ID>&limit=20" \
+  | python3 -c 'import sys,json;m=[x for x in json.load(sys.stdin)["messages"] if x.get("quoteResolved",{}).get("mediaApi")][-1];print(m["quoteResolved"]["mediaApi"])')
+curl -s -H "X-Token: $TOKEN" "$BASE$API" -o quoted.bin
+```
+
+> - `localID` 只在单个会话内唯一，且会在应用重装或重启后重新编号：**需要长期保存请存 `svrid`**。
+> - `quoteResolved` 不写入本地存储，每次读取都按当前状态现算，所以不会指向过期的消息。
+> - 实时推送（5.1）与 `/api/messages` 口径一致：`svrid`、`quote`、`quoteResolved` 三个字段都带，
+>   收到推送可直接用 `quoteResolved.mediaApi` / `fileApi` 下载，不必回查接口。
+
 
 ### 7.3 `GET /api/media` — 下载收到的媒体
 
@@ -736,6 +828,21 @@ curl -s -X POST "$BASE/api/moments/rm_comment" \
 
 所有发送接口的结果都会作为一条消息推送到 webhook（见 5.1），一次发送只有 1 条。`chat` 对应的会话必须能在微信中找到，否则返回 `contact not found`。
 
+**`dryRun`（9.1~9.6 全部支持，默认 `0`）**：只做参数校验与预演，**不发送、不落盘、不产生任何消息**，用于上线前验证参数。传非 `0`/`1` 的值一律返回 400，不会被当成 `0` 误发。
+
+| 接口 | `dryRun=1` 时回什么 |
+| --- | --- |
+| `/api/send/text` | `finalText` / `atList` / `atWxids` / `atAll` / `role` |
+| `/api/send/quote` | `finalText` / `atList` / `quoteLocalID` / `quoteFound:true`；被引用消息不存在时回 **400** |
+| `/api/send/image` | `imageBytes` / `format`（`png`/`jpeg`/`gif`/`webp`/`bmp`/`heic`/`unknown`） |
+| `/api/send/voice` | `voiceBytes` / `format`（`4`=silk、`0`=amr）/ `formatName` / `durationMs` |
+| `/api/send/video` | `videoBytes` / `source` |
+| `/api/send/file` | `fileName` / `ext` / `fileBytes` |
+
+预演成功的响应都带 `"dryRun":true`。
+
+> 群公告（9.8）、群昵称（10.1）、好友备注（10.2）、通过好友申请（10.4）是「改别人可见信息」的操作，`dryRun` **默认 1**；发送类默认 **0**。
+
 ### 9.1 `POST /api/send/text` — 文本 / @某人
 
 | 参数 | 类型 | 必填 | 默认 | 说明 |
@@ -954,7 +1061,283 @@ curl -s -X POST "$BASE/api/group/announcement" \
 
 ---
 
-## 10. 常见错误
+## 10. 社交管理接口（v1.2.10 新增）
+
+五个接口覆盖「群昵称（只改自己的）/ 好友备注 / 好友申请」三类能力。**写接口的 `dryRun` 默认均为 1**（不传就是预演），只有显式 `dryRun=0` 才会真正改动微信里的信息。
+
+### 10.0 能力边界（先看这张表）
+
+| 接口 | 能力 | 真机状态 |
+| --- | --- | --- |
+| `POST /api/group/nickname` | 改**自己**在群里的群昵称 | ✅ 可用（回读确认） |
+| `POST /api/contact/remark` | 改好友备注（群成员同样适用，只自己可见） | ✅ 可用（回读确认） |
+| `GET /api/friend/requests` | 待处理好友申请 | ✅ 双源合并（验证记录 + 本机打招呼记录），「删好友后重新申请」也能看到；已通过 / 已忽略的不再返回 |
+| `POST /api/friend/verify` | 通过好友申请 | ✅ `accept` 走微信原生通过链路，成功后顺带把该申请的本地状态标成已处理；真实写 500 秒冷却（`force=1` 可单次放行） |
+> 能力边界（v1.2.10 收敛）：**群昵称只能改自己的，群成员的群昵称和群备注都不做，备注只走 `/api/contact/remark`。**
+>
+> 原因：当前微信客户端里，能改群昵称的界面只持有所属群的会话对象，**没有「某个成员」这个维度**，天生只能改自己的群昵称；群管理模块只提供「改自己的群昵称」一个入口，群操作日志也只有退群、免打扰这类开关，服务端那侧的成员昵称能力在客户端没有可驱动的发送通道。「群成员备注」与「好友备注」在客户端是同一个入口，没必要再包一层「群维度」的接口。
+>
+> 因此从 v1.2.10 起：群昵称接口收敛为单一路径，只做「改自己」这一件事（原先的 `/self` 后缀、以及「群成员」与「实名」两个接口都已整体下线，文档不再提供调用方式）。
+
+所有写操作的响应都带 `confirmed`：它是**回读微信自己的数据**（群名片 / 备注 / 好友列表）得出的，不是把方法的返回值当结果。
+
+### 10.1 `POST /api/group/nickname` — 改自己的群昵称
+
+| 参数 | 类型 | 说明 |
+| --- | --- | --- |
+| `chat` | string | 必填，群 ID（`xxx@chatroom`） |
+| `nickname` | string | 必填，新群昵称；传 `""` 表示清空群昵称 |
+| `dryRun` | 0/1 | 默认 1，只预演 |
+| `requestId` | string | 可选，幂等键（见 2.1） |
+
+```bash
+# 预演：看当前群名片与将要写入的值
+curl -s -X POST "$BASE/api/group/nickname" \
+  -H "X-Token: $TOKEN" -H "Content-Type: application/json" \
+  -d '{"chat":"<CHAT_ID>","nickname":"<NEW_NICKNAME>","dryRun":1}'
+
+# 真正写入
+curl -s -X POST "$BASE/api/group/nickname" \
+  -H "X-Token: $TOKEN" -H "Content-Type: application/json" \
+  -d '{"chat":"<CHAT_ID>","nickname":"<NEW_NICKNAME>","dryRun":0,"requestId":"nick-001"}'
+```
+
+返回（真实写入）：
+
+```json
+{
+  "ok": true, "scope": "group_nickname",
+  "chat": "…@chatroom", "self": "wxid_…",
+  "before": "", "after": "<NEW_NICKNAME>", "target": "<NEW_NICKNAME>",
+  "role": {"isOwner": true, "isAdmin": false, "canManage": 1},
+  "confirmed": true, "state": "done", "requestId": "nick-001"
+}
+```
+
+`confirmed=false` 表示已下发但回读未见新值（多为落库延迟或与旧值相同），响应会带 `hint`，稍后可用同参数 `dryRun=1` 复查。
+
+耗时参考：`dryRun=1` 约 0.2 秒；真实写入约 1.0~1.1 秒（含回读确认窗口）。只想探测当前群名片时用 `dryRun=1`。
+
+### 10.2 `POST /api/contact/remark` — 好友备注
+
+| 参数 | 类型 | 说明 |
+| --- | --- | --- |
+| `user` | string | 必填，好友 wxid（不接受群 ID） |
+| `remark` | string | 必填，新备注；`""` 表示清除备注 |
+| `dryRun` | 0/1 | 默认 1 |
+
+```bash
+curl -s -X POST "$BASE/api/contact/remark" \
+  -H "X-Token: $TOKEN" -H "Content-Type: application/json" \
+  -d '{"user":"<WXID>","remark":"<REMARK>","dryRun":0}'
+```
+
+返回含 `before` / `after` / `confirmed` / `callRet`。`callRet` 是微信内部 API 的原始返回值（成功时为 `60~63`，**不是 0 表示失败**），判定是否成功一律以 `confirmed` 为准。
+
+### 10.3 `GET /api/friend/requests` — 待处理好友申请
+
+| 参数 | 类型 | 说明 |
+| --- | --- | --- |
+| `limit` | int | 默认 50，上限 200 |
+| `includeProcessed` | 0/1 | 默认 `0`，只回待处理的；传 `1` 可把已通过/已忽略的历史记录一起返回（排查用） |
+
+```bash
+curl -s -H "X-Token: $TOKEN" "$BASE/api/friend/requests?limit=20"
+```
+
+```json
+{
+  "ok": true, "count": 1, "rawCount": 0, "helloCount": 1,
+  "pending": 1, "unread": 1, "verifyUnread": 0, "syncReady": true,
+  "sources": {"verify_record": 0, "hello": 1},
+  "requests": [{
+    "requestId": "<WXID>", "user": "<WXID>",
+    "nickname": "<NICKNAME>", "alias": "<ALIAS>",
+    "content": "<VERIFY_TEXT>", "scene": 3, "opcode": 2, "source": "手机号搜索",
+    "channel": "hello", "processed": false,
+    "pending": true, "pendingBy": "hello_status",
+    "sayHelloStatus": 0, "status": 3,
+    "alreadyFriend": false, "version": 0,
+    "msgId": <MSG_ID>, "createTime": 1794982266,
+    "time": "2026-11-18 14:11:06",
+    "ticket": "v4_…@stranger"
+  }]
+}
+```
+
+**「新的朋友」的两条来源**（v1.2.10 起自动合并）：
+
+| `channel` | 来源 | 特点 |
+| --- | --- | --- |
+| `hello` | 本机打招呼记录 | **实时**；「对方删了我再重新申请」这类申请只在这里，验证记录表里没有 |
+| `verify_record` | 微信验证记录表 | 依赖服务端历史同步，可能尚未同步完 |
+
+| 字段 | 说明 |
+| --- | --- |
+| `requestId` | 幂等键，`/api/friend/verify` 就用它定位 |
+| `processed` | 是否已经处理过（通过 / 忽略）。仅 `hello` 条目有 |
+| `pending` | 是否待处理。`hello` 条目等于 `!processed`。默认只回待处理的，通过之后就不会再出现在列表里 |
+| `unread` | 未处理申请数，等于 `pending`（v1.2.10 起对齐，旧版本只统计其中一条数据源会出现偏差） |
+| `verifyUnread` | 微信自身记录的未读验证数，**可能是 0 而 `pending` 不为 0**（本机「新的朋友」数据多数不在这张表里），仅作参考 |
+| `alreadyFriend` | 好友关系标志回读，**可能是陈旧的**：对方单方面删好友再申请时本机仍留旧标志 → `true`。**以 `pending` 为准** |
+| `sayHelloStatus` | `hello` 条目专有，微信原始字段，仅作回显（本机可能恒为 0，**不要用它判待处理**） |
+| `status` / `version` / `msgId` | 微信原始字段，未做语义映射 |
+| `opcode` / `scene` / `source` | 来源场景号与中文标签（标签是尽力映射，以 `opcode`/`scene` 为准） |
+| `direction` | **方向**：`in` = 对方加我（真好友申请）；`out` = 我加对方（手机号搜索等）。**默认只返回 `in`**，要带上 `out` 请传 `includeOutgoing=1` |
+| `helloCount` | 这个人的申请次数。**同一个人申请多次，条目仍然只有 1 条**，次数看它 |
+| `localIds` | 折叠进来的本地记录编号列表 |
+| `ticket` | 通过验证所需凭证，仅在存在时返回 |
+| `syncReady` | `false` 表示验证记录还没同步完；此时 `verify_record` 为空**不代表没人加你**，`hello` 仍会返回 |
+| `sources` | 三条来源各自命中条数：`verify_record` / `hello` / `archived`（已按 `includeProcessed` 过滤后） |
+| `archivedCount` | **已弃用，恒为 0**（1.2.10 起不再归档删除任何记录，保留字段仅为兼容） |
+| `archived` | **已弃用，恒为 `false`**（同上） |
+
+### 10.4 `POST /api/friend/verify` — 通过 / 标记好友申请
+
+> **`action` 只接受 `accept`**。`reject` 已于 1.2.10 下线并从代码中移除：
+> 微信端没有「明确的拒绝动作」，手机上那个拒绝也只是把本地记录标成已处理 ——
+> 对方收不到任何信号、仍可再次申请，因此没有实际意义。现在传 `reject` 或其它值
+> 一律返回 **400**，且**不写任何数据**。
+>
+> **`accept` 成功之后，插件不改本地任何数据**：列表状态与两处角标都由微信自己刷新。
+
+| 参数 | 类型 | 说明 |
+| --- | --- | --- |
+| `user`（或 `requestId`） | string | 必填，来自 10.3 的 `requestId` |
+| `action` | string | 只有 `accept`（默认）。传其它值返回 400 |
+| `remark` | string | 可选，`accept` 成功后顺带写一次好友备注 |
+| `wait` | int | 回读确认预算（秒），缺省 3，上限 30 |
+| `force` | 0/1 | 默认 0。**一次性**绕过 500 秒冷却，只在 `accept` + `dryRun=0` 时有意义 |
+| `dryRun` | 0/1 | 默认 1。真实写（`dryRun=0`）受 500 秒冷却限制 |
+
+```bash
+# 预演：看这条申请来自谁、走哪个通道
+curl -s -X POST "$BASE/api/friend/verify" \
+  -H "X-Token: $TOKEN" -H "Content-Type: application/json" \
+  -d '{"user":"wxid_abc","action":"accept","dryRun":1}'
+
+# 真正通过（有社交副作用，受 500 秒冷却）
+curl -s -X POST "$BASE/api/friend/verify" \
+  -H "X-Token: $TOKEN" -H "Content-Type: application/json" \
+  -d '{"user":"wxid_abc","action":"accept","remark":"3号店-张店长","dryRun":0}'
+```
+
+`confirmed` 以**好友列表里出现此人**为准（`GET /api/contacts/find?wxid=` 能查到且 `isFriend:true`），`true` 表示这次通过已经落地。
+
+```json
+{"ok": true, "scope": "friend_verify", "action": "accept",
+ "user": "<WXID>", "nickname": "<NICKNAME>",
+ "confirmed": true, "friendFlag": true, "remarkApplied": "", "waitedSeconds": 8,
+ "localMarked": 1, "badgeNow": 0, "listMaintainedBy": "wechat",
+ "note": "通过成功; 该人此前的申请已标记处理(不删行), 角标按库内待处理人数刷新",
+ "cooldown": {"window": 500, "active": true, "retryAfter": 500, "scope": "global"},
+ "error": ""
+}
+```
+
+`action` 不是 `accept` 时的响应：
+
+```json
+{"ok": false, "status": 400, "error": "action must be accept",
+ "hint": "reject 已下线, 不再接受; 不传 action 即按 accept 处理"}
+```
+
+** 通过之后插件做了什么 **
+
+微信的通过链路只建立好友关系，**不会**顺手把这条申请标成「已处理」；手机上点「通过验证」时是微信界面自己顺带标的。所以接口在确认通过后补两件最小的事：
+
+| 动作 | 做什么 | 不做什么 |
+| --- | --- | --- |
+| 标状态 | 把这个人**本次之前**的申请标成已处理（按记录号快照，之后才到的新申请不碰） | 不删记录、不归档、不从界面里摘数据 |
+| 写角标 | 按本地实际「还有几个人待处理」写一次这一组角标 | 不「减 1」、不按秒压回、不猜数字 |
+
+三种「让界面马上对」的做法是错的，代价很大：
+
+| 做法 | 后果 |
+| --- | --- |
+| 把这个人所有未处理记录一次性标成已处理 | 他**刚发来的新申请**会被当成已处理 |
+| 归档后把本地记录删掉 | 删的是好友关系凭证，不可恢复 |
+| 每秒把角标数字「压回」目标值 | 与微信自己的刷新抢同一个数字，两处角标不同步 |
+
+`confirmed:false`（好友列表里没有此人）时**什么都不写**，避免把真正待处理的申请藏起来。
+
+> **申请记录不会消失。** `GET /api/friend/requests?includeProcessed=1` 永远查得到历史
+> （包括已经通过的人），只是默认（不带参数）只列「还没处理」的申请。
+
+** 500 秒冷却：防止账号被风控 **
+
+微信对短时间内连续通过好友有风控，轻则限制加好友能力，重则封号。插件侧做了硬性节流：
+**全机 500 秒内只允许一次真实通过，与申请人无关**。
+该窗口只保护「真实通过好友」这一个动作。
+
+> 这是**全局节流**，不是「每个人 500 秒一次」。窗口只跟本机时间走 —— 换一个人申请也不会重置，
+> 所以一批申请需要排队逐个处理，每个之间至少间隔 500 秒。
+
+- 只有 `dryRun=0` 消耗配额；`dryRun=1` 只回显，不占用冷却。
+- 冷却状态存在设备本地文件里，**重启微信不会清零**；系统时间被调回去也绕不过。
+- 冷却判定发生在任何微信调用之前，命中时不会产生任何社交动作。
+
+命中时返回 **429**，`retryAfter` 就是还要等多少秒：
+
+```json
+{
+  "ok": false, "status": 429, "scope": "global",
+  "error": "好友验证冷却中, 请 496 秒后再试",
+  "cooldown": 500, "retryAfter": 496,
+  "retryAfterText": "还需等待 496 秒(约 9 分钟); 全机 500 秒内只处理一次好友验证, 与申请人无关",
+  "forceAvailable": true,
+  "forceHint": "确认无风险时可在同一次请求加 force=1 单次放行; 放行后仍会重新计 500 秒",
+  "nextAllowedAt": 1794983914, "retryable": true
+}
+```
+
+调用前可以先查一次，避免撞 429：
+
+```bash
+curl -s -H "X-Token: $TOKEN" "$BASE/api/friend/verify/cooldown"
+```
+
+```json
+{"ok": true, "cooldown": {"scope": "global", "window": 500, "active": true, "retryAfter": 496,
+ "retryAfterText": "还需等待 496 秒(约 9 分钟)",
+ "forceAvailable": true, "nextAllowedAt": 1794983914}}
+```
+
+`active=true` 时，任何申请人的 `dryRun=0` 请求都会被拦下。
+
+`active=false` 表示现在可以操作。成功响应里也会带同一个 `cooldown` 对象。
+
+** `force=1`：单次绕过冷却 **
+
+冷却期内确实需要立刻再执行一次，可在**同一次请求**里加 `"force": 1`：
+
+```bash
+curl -s -X POST "$BASE/api/friend/verify" \
+  -H "X-Token: $TOKEN" -H "Content-Type: application/json" \
+  -d '{"user":"<WXID>","action":"accept","dryRun":0,"force":1}'
+```
+
+- **单次放行，不是关掉限流**：放过的这一次照样重新计时，下一次再加 `force` 又要等满 500 秒。
+- 只对 `dryRun=0` 有意义；`dryRun=1` 本就不受冷却约束，此时 `force` 被忽略并回 `forceIgnored:true`。
+- 成功响应用 `forceBypassed:true` 与 `cooldownBypassed`（跳过了多少秒）留痕，便于审计。
+- 与普通调用共用同一个窗口。
+- 只接受 `0/1`、`"0"/"1"`、`"true"/"false"`，其它值返回 `400`。
+
+> ⚠️ 这个开关是给「人工确认过没有风险、必须现在做」兜底的。**不要写进自动化流程固定带上**：
+> 每次都 `force=1` 等于把防封号节流彻底关掉，账号风险由调用方承担。
+
+`dryRun=1` 时可以直接预判真跑结果，不必真的执行：
+
+```json
+{"ok": true, "dryRun": true, "wouldBlock": true, "wouldBypassByForce": false,
+ "cooldownLeft": 495, "forceIgnored": false}
+```
+
+`wouldBlock` = 不带 `force` 会不会被拦；`wouldBypassByForce` = 带 `force` 是否会走单次放行；`cooldownLeft` = 剩余秒数。
+
+---
+
+## 11. 常见错误
 
 | 错误 | 原因 / 处理 |
 | --- | --- |
@@ -976,13 +1359,16 @@ curl -s -X POST "$BASE/api/group/announcement" \
 | `contact not found` | 会话 / 联系人不存在，先在微信里打开一次该会话 |
 | `only group owner/admin can @all` | `atAll=1` 但当前账号不是群主 / 管理员 |
 | `only group owner/admin can set announcement` | 设置群公告需要群主 / 管理员 |
+| `chat must be a group id ending with @chatroom` | 群昵称接口的 `chat` 不是群 ID |
+| `no pending friend request for this user`（`404`） | `requestId` 不对，或该申请已被处理；先调 `GET /api/friend/requests` |
+| `missing user (use requestId from /api/friend/requests)` | `/api/friend/verify` 缺 `user` / `requestId` |
 | `code must be a string` | 激活码字段不是字符串 |
 | 激活码无效 / 与设备不匹配 | 激活码损坏、被篡改，或签发给其它设备 |
 | HTTP 短暂连不上 | 服务可能正在自动恢复；重试前先用 `/api/messages` 核查是否已落库，避免重复发送 |
 
 ---
 
-## 11. 典型调用链
+## 12. 典型调用链
 
 ```bash
 # 1. 选会话
