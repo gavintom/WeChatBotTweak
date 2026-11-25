@@ -1,6 +1,6 @@
 # WeChatBotTweak HTTP API
 
-适用版本：v1.2.10（2026-11-19）
+适用版本：v1.2.11（2026-11-25）
 
 本文档描述 WeChatBotTweak 对外提供的 HTTP 接口。所有示例中的地址、令牌与 ID 均为占位符，请替换为实际值。
 
@@ -335,15 +335,15 @@ curl -s -H "X-Token: $TOKEN" "$BASE/api/contacts/groupmember?chat=<CHAT_ID>&name
 | 不传 / `friend` | 微信好友（老行为） |
 | `group` | 群聊（等同 6.2） |
 | `officialAccount` | 已关注的订阅号 / 认证公众号 |
-| `myEnterpriseMember` | **企业成员**：我所在企业的企微号 |
-| `enterpriseContact` | **企微联系人**：企业微信侧的对外联系人，不是我所在企业的成员 |
+| `myEnterpriseMember` | **本企业成员**：我所在企业的企微号 |
+| `enterpriseContact` | **外部企微**：不属于我所在企业的企微号（如客服号、其它企业的成员） |
 | `enterpriseRelated` | 企业消息号 |
 | `builtinService` | 微信内置服务号 |
 | `plugin` / `migrated` / `stranger` | 插件号 / 已迁移注销 / 陌生人缓存 |
 | `all` | 全量通讯录 |
 
 `myEnterpriseMember` 与 `enterpriseContact` 都是企业微信（企微）账号，区别只在**是不是我所在企业的**：
-前者是自己企业的成员，后者是加进来的外部企业联系人。
+`myEnterpriseMember` 是本企业成员，`enterpriseContact` 是外部企微号（客服号、其它企业成员等）。
 
 分类名写错会返回 **400** 并附带 `supportedClasses[]`，不会静默返回 `count:0`；
 分类名正确但确实没人（例如本机没加过企微外部联系人时的 `enterpriseContact`）
